@@ -659,12 +659,15 @@ async function buildChatMessagesWithPromptManager(context, baseMessages, presetN
         const { prompt = '', includeChatHistory = true } = options;
         const rawPrompt = typeof prompt === 'string' ? prompt.trim() : '';
         let resolvedBaseMessages = baseMessages;
+        // Fork fix: skip hidden messages (is_system), exactly like SillyTavern's own generation does.
+        // Without this, messages hidden by MemoryBooks / the eye icon were still sent.
+        const visibleOnly = (arr) => (arr || []).filter(m => m && !m.is_system);
         if (!Array.isArray(resolvedBaseMessages) || resolvedBaseMessages.length === 0) {
             resolvedBaseMessages = includeChatHistory
-                ? helpers.setOpenAIMessages?.(context?.chat || []) || []
+                ? helpers.setOpenAIMessages?.(visibleOnly(context?.chat)) || []
                 : [];
         } else if (isRawChatMessage(resolvedBaseMessages[0])) {
-            resolvedBaseMessages = helpers.setOpenAIMessages?.(resolvedBaseMessages) || [];
+            resolvedBaseMessages = helpers.setOpenAIMessages?.(visibleOnly(resolvedBaseMessages)) || [];
         }
 
         if (rawPrompt) {
