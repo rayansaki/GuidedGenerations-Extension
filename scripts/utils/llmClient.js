@@ -677,13 +677,44 @@ async function buildChatMessagesWithPromptManager(context, baseMessages, presetN
             : [];
 
         const character = context?.characters?.[context?.characterId] || {};
+
+        // Fork fix: getContext() has no worldInfoBefore/worldInfoAfter, so lorebooks were always
+        // empty here. Run SillyTavern's own World Info step (constant + keyword entries).
+        // Dry run = no side effects on sticky/cooldown timers or activation events.
+        let wiBefore = context?.worldInfoBefore || '';
+        let wiAfter = context?.worldInfoAfter || '';
+        if (!stripIdentityFromParams && !wiBefore && !wiAfter && typeof context?.getWorldInfoPrompt === 'function') {
+            try {
+                const chatForWI = (context?.chat || [])
+                    .filter(m => m && !m.is_system)
+                    .map(m => `${m.name}: ${m.mes}`)
+                    .reverse();
+                const globalScanData = {
+                    personaDescription: context?.powerUserSettings?.persona_description || '',
+                    characterDescription: character?.description || '',
+                    characterPersonality: character?.personality || '',
+                    characterDepthPrompt: character?.data?.extensions?.depth_prompt?.prompt || '',
+                    scenario: character?.scenario || '',
+                    creatorNotes: character?.data?.creator_notes || '',
+                    trigger: 'impersonate',
+                };
+                const maxContext = Number(helpers.oai_settings?.openai_max_context) || Number(context?.maxContext) || 8192;
+                const wi = await context.getWorldInfoPrompt(chatForWI, maxContext, true, globalScanData);
+                wiBefore = wi?.worldInfoBefore || '';
+                wiAfter = wi?.worldInfoAfter || '';
+                debugLog(`[${extensionName}] World Info added (before: ${wiBefore.length} chars, after: ${wiAfter.length} chars)`);
+            } catch (error) {
+                debugWarn(`[${extensionName}] World Info lookup failed:`, error);
+            }
+        }
+
         const params = {
             name2: context?.name2 || character?.name || '',
             charDescription: stripIdentityFromParams ? '' : (character?.description || ''),
             charPersonality: stripIdentityFromParams ? '' : (character?.personality || ''),
             scenario: stripIdentityFromParams ? '' : (character?.scenario || ''),
-            worldInfoBefore: stripIdentityFromParams ? '' : (context?.worldInfoBefore || ''),
-            worldInfoAfter: stripIdentityFromParams ? '' : (context?.worldInfoAfter || ''),
+            worldInfoBefore: stripIdentityFromParams ? '' : wiBefore,
+            worldInfoAfter: stripIdentityFromParams ? '' : wiAfter,
             bias: context?.bias || '',
             type: 'normal',
             quietPrompt: context?.quietPrompt || '',
